@@ -9,7 +9,7 @@ import 'package:tr_business_card_clone1/models/contact_model.dart';
 import 'package:tr_business_card_clone1/providers/contact_provider.dart';
 import 'package:tr_business_card_clone1/utils/constants.dart';
 import 'package:tr_business_card_clone1/utils/helper_functions.dart';
-import 'package:tr_business_card_clone1/utils/text_inference.dart';
+import 'package:tr_business_card_clone1/utils/text_inference.dart'; // should contain inferContactFieldsFromText()
 
 class ScanPage extends StatefulWidget {
   static const String routeName = 'scan';
@@ -21,7 +21,6 @@ class ScanPage extends StatefulWidget {
 
 class _ScanPageState extends State<ScanPage> {
   bool isScanOver = false;
-  List<String> lines = [];
   List<TextBlock> textBlocks = [];
   ui.Image? uiImage;
   String image = '';
@@ -87,8 +86,7 @@ class _ScanPageState extends State<ScanPage> {
     }
   }
 
-  void autoFillFields(List<String> lines) {
-    final inferred = inferContactFieldsFromLines(lines);
+  void autoFillFields(Map<String, String> inferred) {
     firstNameController.text = inferred[ContactProperties.firstName] ?? '';
     lastNameController.text = inferred[ContactProperties.lastName] ?? '';
     mobileController.text = inferred[ContactProperties.mobile] ?? '';
@@ -101,6 +99,55 @@ class _ScanPageState extends State<ScanPage> {
     twitterController.text = inferred[ContactProperties.twitter] ?? '';
     facebookController.text = inferred[ContactProperties.facebook] ?? '';
     instagramController.text = inferred[ContactProperties.instagram] ?? '';
+
+    // Debug print to see what was extracted
+    print('=== ML Kit Extraction Results ===');
+    inferred.forEach((key, value) {
+      print('$key: "$value"');
+    });
+    print('Address extracted: "${inferred[ContactProperties.address]}"');
+    print('Address length: ${inferred[ContactProperties.address]?.length}');
+  }
+
+  void getImage(ImageSource source) async {
+    final xFile = await ImagePicker().pickImage(source: source);
+    if (xFile != null) {
+      setState(() {
+        image = xFile.path;
+        isScanOver = false;
+        textBlocks.clear();
+        uiImage = null;
+      });
+
+      EasyLoading.show(status: 'Please wait');
+
+      final inputImage = InputImage.fromFile(File(xFile.path));
+      final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
+      final result = await recognizer.processImage(inputImage);
+
+      final List<String> tempLines = [];
+      for (final block in result.blocks) {
+        for (final line in block.lines) {
+          tempLines.add(line.text);
+        }
+      }
+
+      final byteData = await File(xFile.path).readAsBytes();
+      final codec = await ui.instantiateImageCodec(byteData);
+      final frame = await codec.getNextFrame();
+
+      final fullText = tempLines.join('\n');
+      final inferred = await inferContactFieldsFromText(fullText); // ML Kit entity extraction
+      autoFillFields(inferred);
+
+      EasyLoading.dismiss();
+
+      setState(() {
+        textBlocks = result.blocks;
+        uiImage = frame.image;
+        isScanOver = true;
+      });
+    }
   }
 
   @override
@@ -162,62 +209,74 @@ class _ScanPageState extends State<ScanPage> {
         key: _formKey,
         child: Column(
           children: [
-            TextFormField(controller: firstNameController, decoration: const InputDecoration(labelText: 'First Name'), validator: (v) => v == null || v.isEmpty ? emptyFieldErrMsg : null),
-            TextFormField(controller: lastNameController, decoration: const InputDecoration(labelText: 'Last Name')),
-            TextFormField(controller: mobileController, decoration: const InputDecoration(labelText: 'Mobile'), keyboardType: TextInputType.phone, validator: (v) => v == null || v.isEmpty ? emptyFieldErrMsg : null),
-            TextFormField(controller: emailController, decoration: const InputDecoration(labelText: 'Email'), keyboardType: TextInputType.emailAddress),
-            TextFormField(controller: addressController, decoration: const InputDecoration(labelText: 'Address')),
-            TextFormField(controller: companyController, decoration: const InputDecoration(labelText: 'Company')),
-            TextFormField(controller: designationController, decoration: const InputDecoration(labelText: 'Designation')),
-            TextFormField(controller: webController, decoration: const InputDecoration(labelText: 'Website')),
-            TextFormField(controller: linkedinController, decoration: const InputDecoration(labelText: 'LinkedIn')),
-            TextFormField(controller: twitterController, decoration: const InputDecoration(labelText: 'Twitter')),
-            TextFormField(controller: facebookController, decoration: const InputDecoration(labelText: 'Facebook')),
-            TextFormField(controller: instagramController, decoration: const InputDecoration(labelText: 'Instagram')),
+            TextFormField(
+                controller: firstNameController,
+                decoration: const InputDecoration(labelText: 'First Name'),
+                validator: (v) => v == null || v.isEmpty ? emptyFieldErrMsg : null
+            ),
+            TextFormField(
+                controller: lastNameController,
+                decoration: const InputDecoration(labelText: 'Last Name')
+            ),
+            TextFormField(
+                controller: mobileController,
+                decoration: const InputDecoration(labelText: 'Mobile'),
+                keyboardType: TextInputType.phone,
+                validator: (v) => v == null || v.isEmpty ? emptyFieldErrMsg : null
+            ),
+            TextFormField(
+                controller: emailController,
+                decoration: const InputDecoration(labelText: 'Email'),
+                keyboardType: TextInputType.emailAddress
+            ),
+            // Fixed multiline address field
+            TextFormField(
+              controller: addressController,
+              decoration: const InputDecoration(
+                labelText: 'Address',
+                alignLabelWithHint: true, // Keeps label at top for multiline
+              ),
+              maxLines: null, // Allows unlimited lines
+              minLines: 2,    // Shows at least 2 lines initially
+              keyboardType: TextInputType.multiline,
+            ),
+            TextFormField(
+                controller: companyController,
+                decoration: const InputDecoration(labelText: 'Company')
+            ),
+            TextFormField(
+                controller: designationController,
+                decoration: const InputDecoration(labelText: 'Designation')
+            ),
+            TextFormField(
+              controller: webController,
+              decoration: const InputDecoration(labelText: 'Website'),
+              keyboardType: TextInputType.url,
+            ),
+            TextFormField(
+              controller: linkedinController,
+              decoration: const InputDecoration(labelText: 'LinkedIn'),
+              keyboardType: TextInputType.url,
+            ),
+            TextFormField(
+              controller: twitterController,
+              decoration: const InputDecoration(labelText: 'Twitter'),
+              keyboardType: TextInputType.url,
+            ),
+            TextFormField(
+              controller: facebookController,
+              decoration: const InputDecoration(labelText: 'Facebook'),
+              keyboardType: TextInputType.url,
+            ),
+            TextFormField(
+              controller: instagramController,
+              decoration: const InputDecoration(labelText: 'Instagram'),
+              keyboardType: TextInputType.url,
+            ),
           ],
         ),
       ),
     );
-  }
-
-  void getImage(ImageSource source) async {
-    final xFile = await ImagePicker().pickImage(source: source);
-    if (xFile != null) {
-      setState(() {
-        image = xFile.path;
-        isScanOver = false;
-        lines.clear();
-        textBlocks.clear();
-        uiImage = null;
-      });
-
-      EasyLoading.show(status: 'Please wait');
-
-      final inputImage = InputImage.fromFile(File(xFile.path));
-      final recognizer = TextRecognizer(script: TextRecognitionScript.latin);
-      final result = await recognizer.processImage(inputImage);
-
-      final List<String> tempLines = [];
-      for (final block in result.blocks) {
-        for (final line in block.lines) {
-          tempLines.add(line.text);
-        }
-      }
-
-      final byteData = await File(xFile.path).readAsBytes();
-      final codec = await ui.instantiateImageCodec(byteData);
-      final frame = await codec.getNextFrame();
-
-      EasyLoading.dismiss();
-
-      setState(() {
-        lines = tempLines;
-        textBlocks = result.blocks;
-        uiImage = frame.image;
-        isScanOver = true;
-        autoFillFields(tempLines);
-      });
-    }
   }
 }
 
@@ -294,5 +353,3 @@ class BoundingBoxPainter extends CustomPainter {
   @override
   bool shouldRepaint(covariant CustomPainter oldDelegate) => true;
 }
-
-

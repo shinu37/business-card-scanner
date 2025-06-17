@@ -1,70 +1,77 @@
-import 'package:tr_business_card_clone1/utils/constants.dart';
+import 'package:google_mlkit_entity_extraction/google_mlkit_entity_extraction.dart';
+import 'constants.dart';
 
-Map<String, String> inferContactFieldsFromLines(List<String> lines) {
+Future<Map<String, String>> inferContactFieldsFromText(String fullText) async {
   final result = <String, String>{};
-  final seen = <String>{};
+  final entityExtractor = EntityExtractor(language: EntityExtractorLanguage.english);
 
-  final phoneRegex = RegExp(r'(?:\+91[\s\-]?)?\d{10}|\d{3,5}[-\s]?\d{6,8}');
-  final emailRegex = RegExp(r'\b[\w\.-]+@[\w\.-]+\.\w{2,4}\b');
-  final websiteRegex = RegExp(r'(https?:\/\/)?(www\.)?[\w\-]+\.\w{2,}(\/\S*)?');
-  final addressKeywords = ['road', 'street', 'galli', 'nagar', 'market', 'colony', 'lane', 'camp'];
+  final annotations = await entityExtractor.annotateText(fullText);
+
+  for (final annotation in annotations) {
+    for (final entity in annotation.entities) {
+      switch (entity.type) {
+        case EntityType.phone:
+          result[ContactProperties.mobile] ??= annotation.text;
+          break;
+        case EntityType.email:
+          result[ContactProperties.email] ??= annotation.text;
+          break;
+        case EntityType.address:
+          result[ContactProperties.address] ??= annotation.text;
+          break;
+        case EntityType.url:
+          final url = annotation.text.toLowerCase();
+          if (url.contains("linkedin")) {
+            result[ContactProperties.linkedin] ??= annotation.text;
+          } else if (url.contains("twitter")) {
+            result[ContactProperties.twitter] ??= annotation.text;
+          } else if (url.contains("instagram")) {
+            result[ContactProperties.instagram] ??= annotation.text;
+          } else if (url.contains("facebook")) {
+            result[ContactProperties.facebook] ??= annotation.text;
+          } else {
+            result[ContactProperties.website] ??= annotation.text;
+          }
+          break;
+        default:
+          break;
+      }
+    }
+  }
+
+  await entityExtractor.close();
+
+  final fallback = _extractDesignationAndCompany(fullText);
+  result.addAll(fallback);
+
+  return result;
+}
+
+Map<String, String> _extractDesignationAndCompany(String fullText) {
+  final result = <String, String>{};
+  final lines = fullText.split('\n').map((e) => e.trim()).where((e) => e.isNotEmpty).toList();
+
+  // Designation
+  final jobTitles = [
+    'ceo', 'cto', 'cfo', 'coo', 'president', 'vice president', 'vp',
+    'director', 'executive', 'founder', 'manager', 'developer', 'engineer',
+    'consultant', 'analyst', 'specialist', 'lead', 'supervisor',
+    'architect', 'intern', 'trainee','agent','agents'
+  ];
 
   for (final line in lines) {
-    final text = line.trim();
-    final lower = text.toLowerCase();
-    if (text.isEmpty || seen.contains(text)) continue;
-    seen.add(text);
-
-    // Mobile
-    if (result[ContactProperties.mobile] == null && phoneRegex.hasMatch(text)) {
-      result[ContactProperties.mobile] = phoneRegex.firstMatch(text)!.group(0)!;
+    if (jobTitles.any((title) => line.toLowerCase().contains(title))) {
+      result[ContactProperties.designation] = line;
+      break;
     }
+  }
 
-    // Email
-    else if (result[ContactProperties.email] == null && emailRegex.hasMatch(text)) {
-      result[ContactProperties.email] = emailRegex.firstMatch(text)!.group(0)!;
-    }
-
-    // Website
-    else if (result[ContactProperties.website] == null && websiteRegex.hasMatch(text)) {
-      result[ContactProperties.website] = websiteRegex.firstMatch(text)!.group(0)!;
-    }
-
-    // Socials
-    else if (lower.contains('linkedin') || lower.contains('linkedin.com')) {
-      result[ContactProperties.linkedin] ??= text;
-    } else if (lower.contains('twitter') || lower.contains('@') && lower.contains('tw')) {
-      result[ContactProperties.twitter] ??= text;
-    } else if (lower.contains('facebook')) {
-      result[ContactProperties.facebook] ??= text;
-    } else if (lower.contains('instagram')) {
-      result[ContactProperties.instagram] ??= text;
-    }
-
-    // Designation detection by keyword
-    else if (RegExp(r'(ceo|founder|director|manager|engineer|consultant|executive|head)', caseSensitive: false).hasMatch(lower)) {
-      result[ContactProperties.designation] ??= text;
-    }
-
-    // Company - if short and uppercase or has known suffix
-    else if (result[ContactProperties.company] == null &&
-        (text.length < 40 && (text == text.toUpperCase() || text.contains('Pvt') || text.contains('LLC')))) {
-      result[ContactProperties.company] = text;
-    }
-
-    // Address - keyword based
-    else if (result[ContactProperties.address] == null &&
-        addressKeywords.any((k) => lower.contains(k)) &&
-        text.length > 15) {
-      result[ContactProperties.address] = text;
-    }
-
-    // Name - assume topmost reasonable string
-    else if (result[ContactProperties.firstName] == null &&
-        RegExp(r'^[A-Z][a-z]+(?:\s[A-Z][a-z]+)+$').hasMatch(text)) {
-      final words = text.split(' ');
-      result[ContactProperties.firstName] = words[0];
-      result[ContactProperties.lastName] = words.length > 1 ? words.sublist(1).join(' ') : '';
+  // Company
+  final companyIndicators = ['pvt', 'ltd', 'inc', 'corp', 'technologies', 'solution','solutions', 'systems','company'];
+  for (final line in lines) {
+    if (companyIndicators.any((word) => line.toLowerCase().contains(word))) {
+      result[ContactProperties.company] = line;
+      break;
     }
   }
 

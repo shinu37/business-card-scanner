@@ -1,6 +1,7 @@
 import 'package:flutter/material.dart';
 import 'package:flutter_easyloading/flutter_easyloading.dart';
 import 'package:go_router/go_router.dart';
+
 import 'package:provider/provider.dart';
 import 'package:tr_business_card_clone1/pages/contact_details_page.dart';
 import 'package:tr_business_card_clone1/pages/home_page.dart';
